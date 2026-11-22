@@ -1,0 +1,29 @@
+{
+  "name": "@archon/forge-forgejo",
+  "version": "0.14.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/plugin.ts",
+  "types": "./src/operations.ts",
+  "exports": {
+    ".": "./src/operations.ts",
+    "./plugin": "./src/plugin.ts"
+  },
+  "scripts": {
+    "test": "bun run ../../scripts/package-tests.ts",
+    "type-check": "bun x tsc --noEmit",
+    "build": "bun build --compile ./src/plugin.ts --outfile ./dist/archon-forge-forgejo"
+  },
+  "dependencies": {
+    "@archon/forge": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "testGroups": [
+    [
+      "src/"
+    ]
+  ]
+}

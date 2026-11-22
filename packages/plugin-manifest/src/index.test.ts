@@ -31,6 +31,12 @@ describe('plugin manifest', () => {
     expect(parsed.executable).toBe('archon-forge-github');
   });
 
+  test('the Forgejo forge plugin manifest in this repository is valid', async () => {
+    const path = join(import.meta.dir, '../../../plugins/forge-forgejo', PLUGIN_MANIFEST_FILE);
+    const parsed = forgeManifestSchema.parse(await Bun.file(path).json());
+    expect(parsed.executable).toBe('archon-forge-forgejo');
+  });
+
   test('rejects kinds without an install path, unknown keys and executable names outside discovery', () => {
     expect(pluginManifestSchema.safeParse(manifest).success).toBe(true);
     for (const invalid of [

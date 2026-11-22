@@ -27,7 +27,7 @@ import {
 } from './discovery';
 import { normalizeHost, type ForgePluginConfig } from './plugin-config';
 import { runPluginProcess, type PluginProcessResult } from './plugin-process';
-import { selectCredential } from './credentials';
+import { selectCredential, type ForgeCliFallback } from './credentials';
 import { GH_DOTCOM_TOKEN_KEYS } from '@archon/paths/github-token-env';
 import { parseRemoteUrl } from './remote-url';
 import { httpsDefaultPortRemoteHost, matchesForgeOperationResponse } from './response-match';
@@ -350,6 +350,8 @@ function refuseBeforeRun(request: ForgeRequest, metadata: PluginMetadata): Forge
   return undefined;
 }
 
+const FORGEJO_TOKEN_KEYS = ['FORGEJO_TOKEN', 'CODEBERG_TOKEN', 'GITEA_TOKEN'] as const;
+
 function pluginCredential(
   plugin: DiscoveredPlugin,
   discovery: PluginDiscovery,
@@ -357,8 +359,8 @@ function pluginCredential(
   options: DispatchOptions
 ): Promise<OperationCredential> {
   const env = options.env ?? process.env;
-  const { names, github } = credentialEnvNames(plugin, discovery, selectedHost);
-  return selectCredential(names, github, selectedHost, options.credentialEnv ?? env, env);
+  const { names, cliFallback } = credentialEnvNames(plugin, discovery, selectedHost);
+  return selectCredential(names, cliFallback, selectedHost, options.credentialEnv ?? env, env);
 }
 
 /**
@@ -369,17 +371,23 @@ function credentialEnvNames(
   plugin: DiscoveredPlugin,
   discovery: PluginDiscovery,
   selectedHost: string
-): { names: readonly string[]; override?: string; github: boolean } {
+): { names: readonly string[]; override?: string; cliFallback?: ForgeCliFallback } {
   const metadata = plugin.metadata;
   const override =
     discovery.hostConfig.get(selectedHost)?.token_env ??
     discovery.pluginTokenEnv.get(metadata.name);
-  if (override) return { names: [override], override, github: false };
+  if (override) return { names: [override], override };
   const github =
     metadata.forge === 'github' &&
     metadata.token_env.length > 0 &&
     metadata.token_env.every(name => GH_DOTCOM_TOKEN_KEYS.some(key => key === name));
-  return { names: github ? GH_DOTCOM_TOKEN_KEYS : metadata.token_env, github };
+  if (github) return { names: GH_DOTCOM_TOKEN_KEYS, cliFallback: 'gh' };
+  const forgejo =
+    metadata.forge === 'forgejo' &&
+    metadata.token_env.length > 0 &&
+    metadata.token_env.every(name => FORGEJO_TOKEN_KEYS.some(key => key === name));
+  if (forgejo) return { names: metadata.token_env, cliFallback: 'tea' };
+  return { names: metadata.token_env };
 }
 
 function credentialFailure(

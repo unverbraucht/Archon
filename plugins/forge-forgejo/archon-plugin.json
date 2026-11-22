@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "kind": "forge",
+  "name": "forge-forgejo",
+  "description": "Resolves Forgejo, Codeberg, and Gitea repositories and operates on pull requests, issues, checks, and reviews through the v1 REST API.",
+  "executable": "archon-forge-forgejo"
+}

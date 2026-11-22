@@ -135,6 +135,17 @@
         "typescript": "^5.0.0",
       },
     },
+    "packages/forge-forgejo": {
+      "name": "@archon/forge-forgejo",
+      "version": "0.14.0",
+      "dependencies": {
+        "@archon/forge": "workspace:*",
+        "zod": "^4.4.3",
+      },
+      "peerDependencies": {
+        "typescript": "^5.0.0",
+      },
+    },
     "packages/git": {
       "name": "@archon/git",
       "version": "0.14.0",
@@ -371,6 +382,8 @@
     "@archon/docs-web": ["@archon/docs-web@workspace:packages/docs-web"],
 
     "@archon/forge": ["@archon/forge@workspace:packages/forge"],
+
+    "@archon/forge-forgejo": ["@archon/forge-forgejo@workspace:packages/forge-forgejo"],
 
     "@archon/git": ["@archon/git@workspace:packages/git"],
 

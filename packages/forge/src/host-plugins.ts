@@ -1,7 +1,10 @@
 /** Where a host process (the CLI or `archon serve`) finds forge plugins and their config. */
 import { readFile } from 'node:fs/promises';
 import { BUNDLED_IS_BINARY } from '@archon/paths';
-import { getSourceGithubForgeEntry } from '@archon/paths/source-tree-paths';
+import {
+  getSourceForgejoForgeEntry,
+  getSourceGithubForgeEntry,
+} from '@archon/paths/source-tree-paths';
 import type { SourcePlugin } from './discovery';
 
 /** The `forge:` block of an Archon config file; empty when the file or the block is absent. */
@@ -32,6 +35,11 @@ export function sourceForgePlugins(isBinary: boolean = BUNDLED_IS_BINARY): Sourc
       name: 'github',
       command: process.execPath,
       args: ['--no-env-file', getSourceGithubForgeEntry()],
+    },
+    {
+      name: 'forgejo',
+      command: process.execPath,
+      args: ['--no-env-file', getSourceForgejoForgeEntry()],
     },
   ];
 }

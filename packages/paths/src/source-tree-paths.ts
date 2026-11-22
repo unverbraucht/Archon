@@ -89,6 +89,11 @@ export function getSourceGithubForgeEntry(): string {
   return join(getSourceRepoRoot(), 'packages', 'adapters', 'src', 'forge', 'github', 'plugin.ts');
 }
 
+/** The Forgejo / Codeberg / Gitea forge plugin's entry point in this checkout. */
+export function getSourceForgejoForgeEntry(): string {
+  return join(getSourceRepoRoot(), 'packages', 'forge-forgejo', 'src', 'plugin.ts');
+}
+
 export function getSourceServerEntry(): string {
   return join(getSourceRepoRoot(), 'packages', 'server', 'src', 'bin.ts');
 }

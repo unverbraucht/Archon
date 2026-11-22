@@ -67,6 +67,7 @@ export const PACKAGE_LAYERING: Layering = {
     runtime: ['core', 'forge', 'git', 'isolation', 'paths', 'providers', 'workflows'],
   },
   'chat-slack': { runtime: ['chat-contract'] },
+  'forge-forgejo': { runtime: ['forge'] },
   server: {
     runtime: [
       'adapters',
