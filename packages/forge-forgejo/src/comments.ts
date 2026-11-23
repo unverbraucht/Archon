@@ -12,7 +12,7 @@ import {
   type ForgeResponse,
 } from '@archon/forge/operations';
 import type { PrRef } from '@archon/forge';
-import { forgejoPages, forgejoRequest, location, type Fetch } from './api';
+import { forgejoRequest, location, type Fetch } from './api';
 import { applied, refused, unverified, type Submit } from './mutation-outcome';
 import { readIssue, subjectRecord } from './workitems';
 import { actor, userSchema } from './actor';
@@ -73,9 +73,12 @@ export async function upsertComment(
       : {};
   const { root, path } = location(ref.repo);
   const issue = `${root}/repos/${path}/issues/${String(ref.number)}`;
-  const comments = await forgejoPages(fetchImpl, token, `${issue}/comments`, raw =>
-    z.array(commentSchema).parse(raw)
-  );
+  // This endpoint has no page/limit parameters: Gitea/Forgejo answer the whole
+  // comment list, and appending them would re-read the same list forever once an
+  // item has enough comments.
+  const comments = z
+    .array(commentSchema)
+    .parse(await forgejoRequest(fetchImpl, token, `${issue}/comments`));
   const marked = comments.filter(
     comment => (comment.body ?? '').split(/\r?\n/, 1)[0] === request.marker
   );
@@ -147,12 +150,15 @@ export async function handleForgejoWorkItemComments(
   const { ref } = request.subject;
   const workitem = subjectRecord(request.subject, await readIssue(fetchImpl, token, ref));
   const { root, path } = location(ref.repo);
-  const comments = await forgejoPages(
-    fetchImpl,
-    token,
-    `${root}/repos/${path}/issues/${String(ref.number)}/comments`,
-    raw => z.array(commentSchema).parse(raw)
-  );
+  const comments = z
+    .array(commentSchema)
+    .parse(
+      await forgejoRequest(
+        fetchImpl,
+        token,
+        `${root}/repos/${path}/issues/${String(ref.number)}/comments`
+      )
+    );
   return {
     operationId: request.operationId,
     ok: true,

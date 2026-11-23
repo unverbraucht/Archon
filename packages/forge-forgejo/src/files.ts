@@ -3,10 +3,9 @@
 import { z } from 'zod';
 import { prFileSchema, type ForgeRequest, type ForgeResponse } from '@archon/forge/operations';
 import type { PrRef } from '@archon/forge';
-import { ForgejoError, forgejoPages, forgejoRequest, location, type Fetch } from './api';
+import { ForgejoError, forgejoPagesWithTotal, forgejoRequest, location, type Fetch } from './api';
 
 const pullSchema = z.object({
-  changed_files: z.number().int().nonnegative().optional(),
   head: z.object({ sha: z.string().min(1) }),
 });
 
@@ -95,7 +94,12 @@ function normalizeStatus(status: string): PrFileStatus {
 
 /**
  * Every file a pull request changes, with the head the list belongs to.
- * Throws if Forgejo lists fewer files than declared or the head moves during the read.
+ *
+ * The files endpoint's own `X-Total-Count` is the completeness check. The pull
+ * request's `changed_files` is not: Forgejo reports `0` once the head branch is
+ * deleted and can stay stale after a force-push, so comparing against it refuses
+ * a complete list. A list shorter than the endpoint's total, or one read while the
+ * head moved, throws instead of answering.
  */
 export async function readPullFiles(
   fetchImpl: Fetch,
@@ -105,8 +109,10 @@ export async function readPullFiles(
   const { root, path } = location(ref.repo);
   const base = `${root}/repos/${path}/pulls/${String(ref.number)}`;
   const pull = pullSchema.parse(await forgejoRequest(fetchImpl, token, base));
-  const [rows, diffText] = await Promise.all([
-    forgejoPages(fetchImpl, token, `${base}/files`, value => z.array(pullFileSchema).parse(value)),
+  const [listed, diffText] = await Promise.all([
+    forgejoPagesWithTotal(fetchImpl, token, `${base}/files`, value =>
+      z.array(pullFileSchema).parse(value)
+    ),
     forgejoRequest(
       fetchImpl,
       token,
@@ -116,10 +122,10 @@ export async function readPullFiles(
       'text'
     ) as Promise<string>,
   ]);
-  if (pull.changed_files !== undefined && rows.length !== pull.changed_files) {
+  if (listed.totalCount !== null && listed.values.length !== listed.totalCount) {
     throw new ForgejoError({
       kind: 'forge_error',
-      message: `Forgejo listed ${String(rows.length)} of the ${String(pull.changed_files)} files pull request ${String(ref.number)} changes`,
+      message: `Forgejo listed ${String(listed.values.length)} of the ${String(listed.totalCount)} files pull request ${String(ref.number)} changes`,
     });
   }
   const after = pullSchema.parse(await forgejoRequest(fetchImpl, token, base));
@@ -132,7 +138,7 @@ export async function readPullFiles(
   const patches = parseDiffPatches(diffText);
   return {
     head: pull.head.sha,
-    files: rows.map(row => ({
+    files: listed.values.map(row => ({
       path: row.filename,
       previous_path: row.previous_filename ?? null,
       status: normalizeStatus(row.status),

@@ -33,7 +33,9 @@ const MARKER_SUFFIX = ' -->';
 
 const reviewSchema = z.object({
   id: z.union([z.number().int(), z.string().min(1)]),
-  html_url: z.url(),
+  // Empty for a review request; Forgejo does not expose a per-review web page.
+  html_url: z.string().nullable().optional(),
+  pull_request_url: z.string().nullable().optional(),
   body: z.string().nullable().optional(),
   user: userSchema.optional(),
   commit_id: z.string().nullable().optional(),
@@ -47,7 +49,8 @@ type Review = z.infer<typeof reviewSchema>;
 
 const reviewCommentSchema = z.object({
   id: z.union([z.number().int(), z.string().min(1)]),
-  html_url: z.url(),
+  html_url: z.string().nullable().optional(),
+  pull_request_url: z.string().nullable().optional(),
   body: z.string().nullable().optional(),
   user: userSchema.optional(),
   commit_id: z.string().nullable().optional(),
@@ -84,6 +87,28 @@ function markerKey(body: string | null | undefined): string | undefined {
 function pullUrl(ref: PrRef): string {
   const { root, path } = location(ref.repo);
   return `${root}/repos/${path}/pulls/${String(ref.number)}`;
+}
+
+function pullWebUrl(ref: PrRef): string {
+  const { webRoot, path } = location(ref.repo);
+  return `${webRoot}/${path}/pulls/${String(ref.number)}`;
+}
+
+/**
+ * A review or review comment's web URL. Forgejo leaves `html_url` empty on a
+ * review request and does not expose a per-review page, so the pull request is
+ * the honest link in that case.
+ */
+function itemWebUrl(
+  value: string | null | undefined,
+  ref: PrRef,
+  pullRequestUrl?: string | null
+): string {
+  for (const candidate of [value, pullRequestUrl]) {
+    const url = candidate?.trim();
+    if (url && z.url().safeParse(url).success) return url;
+  }
+  return pullWebUrl(ref);
 }
 
 function isSubmittedReview(review: Review): boolean {
@@ -148,7 +173,7 @@ export async function handleForgejoPrReviews(
       commit: normalizeCommit(review.commit_id),
       state: review.dismissed ? 'DISMISSED' : (review.state ?? null),
       createdAt: normalizeTimestamp(review.submitted_at) ?? normalizeTimestamp(review.updated_at),
-      url: review.html_url,
+      url: itemWebUrl(review.html_url, request.ref, review.pull_request_url),
       body: review.body ?? '',
       ...(submitKey === undefined ? {} : { submitKey }),
     };
@@ -165,7 +190,7 @@ export async function handleForgejoPrReviews(
       commit: normalizeCommit(comment.original_commit_id) ?? normalizeCommit(comment.commit_id),
       state: null,
       createdAt: normalizeTimestamp(comment.created_at),
-      url: comment.html_url,
+      url: itemWebUrl(comment.html_url, request.ref, comment.pull_request_url),
       body: comment.body ?? '',
       ...(submitKey === undefined ? {} : { submitKey }),
     };
@@ -194,7 +219,7 @@ function commentThreadKey(comment: ReviewComment): string {
 }
 
 function buildThread(
-  host: string,
+  ref: PrRef,
   headSha: string,
   comments: readonly ReviewComment[]
 ): z.infer<typeof reviewThreadSchema> {
@@ -219,11 +244,11 @@ function buildThread(
       const createdAt = normalizeTimestamp(comment.created_at);
       return {
         id: String(comment.id),
-        author: actor(host, comment.user ?? null),
+        author: actor(ref.repo.host, comment.user ?? null),
         ...(createdAt ? { createdAt } : {}),
         commit: normalizeCommit(comment.original_commit_id) ?? normalizeCommit(comment.commit_id),
         body: comment.body ?? '',
-        url: comment.html_url,
+        url: itemWebUrl(comment.html_url, ref, comment.pull_request_url),
       };
     }),
   };
@@ -248,7 +273,7 @@ export async function handleForgejoPrThreads(
     grouped.set(key, list);
   }
   const threads = [...grouped.values()].map(group =>
-    buildThread(request.ref.repo.host, pull.head.sha, group)
+    buildThread(request.ref, pull.head.sha, group)
   );
   return {
     operationId: request.operationId,
@@ -318,7 +343,7 @@ function submitResult(request: SubmitRequest, review: Review, placed: readonly P
     review: {
       ref: request.ref,
       id: String(review.id),
-      url: review.html_url,
+      url: itemWebUrl(review.html_url, request.ref, review.pull_request_url),
       commit: request.commit,
       key: request.key,
       bodyDigest: contentDigest(review.body ?? ''),

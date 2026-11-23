@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { discoverPlugins } from './discovery';
-import { dispatchForge } from './dispatch';
+import { trackTempRoots } from '@archon/paths/test-utils';
+import { discoverPlugins, type DiscoveredPlugin, type PluginDiscovery } from './discovery';
+import { checkForgeAccess, dispatchForge } from './dispatch';
 import { repoRefSchema, type RepoRef } from './identity';
+import type { PluginMetadata } from './operations';
 
 const fixture = join(import.meta.dir, 'fixtures', 'test-plugin.ts');
 
@@ -57,6 +61,53 @@ test.each(['github.com', 'ghes.example.test'])(
     }
   }
 );
+
+test('a Forgejo plugin without a token falls back to the tea login helper', async () => {
+  const trackTempRoot = trackTempRoots();
+  const dir = trackTempRoot(mkdtempSync(join(tmpdir(), 'forge-tea-dispatch-')));
+  const tea = join(dir, 'tea');
+  writeFileSync(
+    tea,
+    '#!/bin/sh\ncat >/dev/null\nprintf "password=tea-dispatch-token\\npassword_extra=\\n"\n'
+  );
+  chmodSync(tea, 0o755);
+
+  // The plugin declares a custom token environment: the fallback belongs to the forge,
+  // not to one fixed list of variable names.
+  const metadata: PluginMetadata = {
+    protocol: 1,
+    name: 'forgejo',
+    version: '1',
+    forge: 'forgejo',
+    hosts: ['forge.example'],
+    capabilities: ['pr.view'],
+    token_env: ['FORGE_EXAMPLE_TOKEN'],
+  };
+  const plugin = {
+    source: 'source:forgejo',
+    configured: true,
+    command: process.execPath,
+    args: [],
+    expectedName: 'forgejo',
+    metadata,
+  } as unknown as DiscoveredPlugin;
+  const discovery: PluginDiscovery = {
+    plugins: [plugin],
+    unavailable: [],
+    byHost: new Map([['forge.example', plugin]]),
+    hostConfig: new Map(),
+    pluginTokenEnv: new Map(),
+  };
+
+  const check = await checkForgeAccess(
+    { host: 'forge.example', operations: [] },
+    { discovery, env: { PATH: dir }, credentialEnv: {} }
+  );
+  expect(check).toMatchObject({
+    ok: true,
+    credentialSource: 'tea logins helper',
+  });
+});
 
 test('qualified operations use the retained HTTPS claim and its credential configuration', async () => {
   const discovery = await discoverPlugins({

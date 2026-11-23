@@ -329,4 +329,151 @@ describe('files, reviews, threads, and attachments', () => {
       result: { op: 'attachment.put', value: { changed: false } },
     });
   });
+
+  test('pr.files trusts the files endpoint total over a stale changed_files', async () => {
+    const pull = { changed_files: 0, head: { sha: 'head-sha-1' } };
+    const fetchImpl: Fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/pulls/7')) return json(pull);
+      if (url.includes('/pulls/7/files')) {
+        return new Response(
+          JSON.stringify([
+            { filename: 'src/app.ts', status: 'modified' },
+            { filename: 'assets/logo.png', status: 'added' },
+          ]),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json', 'x-total-count': '2' },
+          }
+        );
+      }
+      if (url.endsWith('/pulls/7.diff')) return new Response(SAMPLE_DIFF, { status: 200 });
+      return json({}, 404);
+    };
+
+    const response = await handleForgejoOperation(
+      { operationId: 'pf-stale', op: 'pr.files', ref },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        op: 'pr.files',
+        value: {
+          files: [{ path: 'src/app.ts' }, { path: 'assets/logo.png', patch: null }],
+        },
+      },
+    });
+  });
+
+  test('pr.files refuses a list shorter than the files endpoint total', async () => {
+    const fetchImpl: Fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/pulls/7')) return json({ head: { sha: 'head-sha-1' } });
+      if (url.includes('/pulls/7/files')) {
+        const page = new URL(url).searchParams.get('page');
+        return new Response(
+          JSON.stringify(page === '1' ? [{ filename: 'src/app.ts', status: 'modified' }] : []),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json', 'x-total-count': '3' },
+          }
+        );
+      }
+      if (url.endsWith('/pulls/7.diff')) return new Response(SAMPLE_DIFF, { status: 200 });
+      return json({}, 404);
+    };
+
+    const response = await handleForgejoOperation(
+      { operationId: 'pf-short', op: 'pr.files', ref },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({
+      ok: false,
+      error: { kind: 'forge_error', message: expect.stringContaining('listed 1 of the 3') },
+    });
+  });
+
+  test('pr.reviews and pr.threads accept a review and comment without an html_url', async () => {
+    const body = '<!-- archon-review-key: run-7 -->\nSummary';
+    const review = {
+      id: 801,
+      html_url: '',
+      pull_request_url: 'https://codeberg.org/alice/project/pulls/7',
+      body,
+      commit_id: 'head-sha-1',
+      state: 'COMMENT',
+      dismissed: false,
+      comments_count: 1,
+      submitted_at: '2026-11-22T01:00:00Z',
+      user: { id: 1, login: 'archon' },
+    };
+    const comment = {
+      id: 900,
+      html_url: '',
+      pull_request_url: 'https://codeberg.org/alice/project/pulls/7',
+      body: 'Inline',
+      commit_id: 'head-sha-1',
+      original_commit_id: 'head-sha-1',
+      path: 'src/app.ts',
+      position: 2,
+      original_position: 0,
+      pull_request_review_id: 801,
+      resolver: null,
+      created_at: '2026-11-22T01:00:00Z',
+      user: { id: 1, login: 'archon' },
+    };
+    const pull = {
+      number: 7,
+      html_url: 'https://codeberg.org/alice/project/pulls/7',
+      title: 'Feature',
+      body: '',
+      state: 'open',
+      draft: false,
+      merged: false,
+      merge_commit_sha: null,
+      allow_maintainer_edit: true,
+      created_at: '2026-11-22T00:00:00Z',
+      merged_at: null,
+      closed_at: null,
+      head: { ref: 'feat', sha: 'head-sha-1', repo: { full_name: 'alice/project' } },
+      base: { ref: 'main', sha: 'base-sha-1' },
+    };
+    const fetchImpl: Fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/pulls/7')) return json(pull);
+      if (url.endsWith('/pulls/7/reviews/801/comments')) return json([comment]);
+      if (url.includes('/pulls/7/reviews')) return json([review]);
+      return json({}, 404);
+    };
+
+    const reviews = await handleForgejoOperation(
+      { operationId: 'rv-url', op: 'pr.reviews', ref },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    const threads = await handleForgejoOperation(
+      { operationId: 'th-url', op: 'pr.threads', ref },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    const expected = 'https://codeberg.org/alice/project/pulls/7';
+    expect(reviews).toMatchObject({
+      ok: true,
+      result: {
+        op: 'pr.reviews',
+        value: {
+          items: [
+            { id: '801', url: expected },
+            { id: '900', url: expected },
+          ],
+        },
+      },
+    });
+    expect(threads).toMatchObject({
+      ok: true,
+      result: {
+        op: 'pr.threads',
+        value: { threads: [{ id: '900', comments: [{ id: '900', url: expected }] }] },
+      },
+    });
+  });
 });

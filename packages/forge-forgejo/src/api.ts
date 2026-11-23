@@ -160,15 +160,32 @@ function hasNextLink(header: string | null): boolean {
   return header !== null && /;\s*rel="next"/.test(header);
 }
 
-/** Paginate a Forgejo/Gitea list endpoint until the final page is reached. */
-export async function forgejoPages<T>(
+function totalCountHeader(response: Response): number | null {
+  const header = response.headers.get('x-total-count');
+  if (header === null) return null;
+  const value = Number(header);
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Paginate a Forgejo/Gitea list endpoint until the final page is reached. The
+ * endpoint's own `X-Total-Count` is returned alongside the rows so a caller can
+ * check that it read the whole collection.
+ *
+ * `X-Total-Count` is used to stop when it is present: a server that caps `limit`
+ * below the request still reports the real total, and a list shorter than that
+ * total continues to the next page. `Link` and a short page are the fallbacks for
+ * endpoints that report neither.
+ */
+export async function forgejoPagesWithTotal<T>(
   fetchImpl: Fetch,
   token: string,
   baseUrl: string,
   readPage: (value: unknown) => readonly T[],
   limit = PAGE_LIMIT
-): Promise<T[]> {
+): Promise<{ values: T[]; totalCount: number | null }> {
   const values: T[] = [];
+  let totalCount: number | null = null;
   for (let page = 1; ; page++) {
     const separator = baseUrl.includes('?') ? '&' : '?';
     const response = await forgejoSend(
@@ -177,6 +194,7 @@ export async function forgejoPages<T>(
       `${baseUrl}${separator}limit=${String(limit)}&page=${String(page)}`
     );
     if (!response.ok) throw forgejoResponseError(response);
+    totalCount = totalCountHeader(response) ?? totalCount;
     let raw: unknown;
     try {
       raw = await response.json();
@@ -191,11 +209,24 @@ export async function forgejoPages<T>(
     values.push(...rows);
     const link = response.headers.get('link');
     if (link !== null) {
-      if (!hasNextLink(link) || rows.length === 0) return values;
+      if (!hasNextLink(link) || rows.length === 0) return { values, totalCount };
+    } else if (totalCount !== null) {
+      if (values.length >= totalCount || rows.length === 0) return { values, totalCount };
     } else if (rows.length < limit) {
-      return values;
+      return { values, totalCount };
     }
   }
+}
+
+/** Paginate a Forgejo/Gitea list endpoint and discard the total. */
+export async function forgejoPages<T>(
+  fetchImpl: Fetch,
+  token: string,
+  baseUrl: string,
+  readPage: (value: unknown) => readonly T[],
+  limit = PAGE_LIMIT
+): Promise<T[]> {
+  return (await forgejoPagesWithTotal(fetchImpl, token, baseUrl, readPage, limit)).values;
 }
 
 function parseUrlRemote(value: string): RepoRef | null {
@@ -232,7 +263,11 @@ function parseUrlRemote(value: string): RepoRef | null {
     repositoryPath(decodedPath) &&
     repositoryPath(decodeURIComponent(url.pathname));
   if (!repository) return null;
-  return { host, path: `${repository.owner}/${repository.repo}` };
+  // An SSH remote's port is the SSH transport's, not the HTTP API's: derive the
+  // forge host from the hostname so `ssh://git@forge.example:2222/o/r.git` still
+  // reaches `https://forge.example/api/v1`.
+  const forgeHost = url.protocol === 'ssh:' ? url.hostname : host;
+  return { host: forgeHost, path: `${repository.owner}/${repository.repo}` };
 }
 
 export function parseRemote(remote: string | null): RepoRef | null {

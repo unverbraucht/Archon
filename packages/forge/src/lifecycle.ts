@@ -416,13 +416,13 @@ export const attachmentPutRequestSchema = requestBase.extend({
   repo: repoRefSchema,
   contentType: attachmentContentTypeSchema,
   // A pattern rather than `z.base64()`: its JSON Schema `contentEncoding` keyword is
-  // one the script API type generator cannot state.
+  // one the script API type generator cannot state. The pattern is deliberately a
+  // single greedy character class: the grouped base64 regex rejects a 7 MB payload on
+  // some Bun/JSC builds, and the length check makes the padding position exact.
   content: z
     .string()
-    .regex(
-      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
-      'content must be base64'
-    )
+    .regex(/^[A-Za-z0-9+/]*={0,2}$/, 'content must be base64')
+    .refine(value => value.length % 4 === 0, 'content must be base64')
     .refine(
       value => {
         const bytes = Buffer.byteLength(value, 'base64');

@@ -16,6 +16,7 @@ describe('resolve', () => {
     ['git@codeberg.org:alice/project.git', 'codeberg.org', 'alice/project'],
     ['git@gitea.com:org/repo.git', 'gitea.com', 'org/repo'],
     ['ssh://git@codeberg.org/alice/project.git', 'codeberg.org', 'alice/project'],
+    ['ssh://git@forge.example.org:2222/alice/project.git', 'forge.example.org', 'alice/project'],
     ['https://codeberg.org/alice/project.git', 'codeberg.org', 'alice/project'],
     ['https://gitea.com/org/repo', 'gitea.com', 'org/repo'],
     ['http://forge.example.org:8080/team/app.git', 'forge.example.org:8080', 'team/app'],

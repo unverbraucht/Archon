@@ -366,4 +366,33 @@ describe('work items, labels, search, and comments', () => {
       },
     });
   });
+
+  test('workitem.comments reads the whole thread in one request', async () => {
+    const comments = Array.from({ length: 60 }, (_, index) => ({
+      id: 1_000 + index,
+      html_url: `https://codeberg.org/alice/project/issues/31#issuecomment-${String(1_000 + index)}`,
+      issue_url: 'https://codeberg.org/alice/project/issues/31',
+      body: `comment ${String(index + 1)}`,
+      user: { id: 9, login: 'bob' },
+    }));
+    const urls: string[] = [];
+    const fetchImpl: Fetch = async input => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith('/issues/31')) return json(sampleIssue());
+      if (url.includes('/issues/31/comments')) return json(comments);
+      return json({}, 404);
+    };
+
+    const response = await handleForgejoOperation(
+      { operationId: 'cm-long', op: 'workitem.comments', subject: { kind: 'issue', ref } },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({ ok: true, result: { op: 'workitem.comments' } });
+    if (!response.ok || response.result.op !== 'workitem.comments') {
+      throw new Error('workitem.comments did not answer');
+    }
+    expect(response.result.value.comments).toHaveLength(60);
+    expect(urls.filter(url => url.includes('/comments'))).toHaveLength(1);
+  });
 });

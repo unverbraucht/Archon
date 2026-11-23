@@ -146,6 +146,35 @@ jobs:
             console.log("::notice::Forge plugin metadata", JSON.stringify(metadata));
           '
 
+      - name: Build Forgejo forge plugin
+        id: forgejo-plugin
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          ASSET=$(bun -e '
+            const { pluginReleaseAsset } = await import("./packages/plugin-manifest/src/index.ts");
+            const manifest = await Bun.file("plugins/forge-forgejo/archon-plugin.json").json();
+            console.log(pluginReleaseAsset(manifest.executable, process.env.TARGET));
+          ')
+          bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --target="$TARGET" packages/forge-forgejo/src/plugin.ts --outfile "dist/${ASSET}"
+          echo "asset=${ASSET}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke-test Forgejo forge plugin
+        if: matrix.target == 'bun-linux-x64' && runner.os == 'Linux'
+        env:
+          ASSET: ${{ steps.forgejo-plugin.outputs.asset }}
+        run: |
+          set -o pipefail
+          chmod +x "dist/${ASSET}"
+          "dist/${ASSET}" metadata | bun -e '
+            const metadata = await Bun.stdin.json();
+            if (metadata.protocol !== 1 || metadata.name !== "forgejo") {
+              console.error("::error::Unexpected Forgejo forge plugin metadata", metadata);
+              process.exit(1);
+            }
+            console.log("::notice::Forgejo forge plugin metadata", JSON.stringify(metadata));
+          '
+
       - name: Build Slack chat plugin
         id: chat-plugin
         env:
@@ -330,6 +359,7 @@ jobs:
             dist/archon-server-*
             dist/archon-provider-*
             dist/${{ steps.forge-plugin.outputs.asset }}
+            dist/${{ steps.forgejo-plugin.outputs.asset }}
             dist/${{ steps.chat-plugin.outputs.asset }}
           retention-days: 1
 
@@ -458,6 +488,7 @@ jobs:
           | `archon-<os>-<arch>[.exe]` | CLI |
           | `archon-server-<os>-<arch>[.exe]` | Version-matched server executable fetched by `archon serve` |
           | `archon-forge-github-<os>-<arch>[.exe]` | GitHub forge plugin |
+          | `archon-forge-forgejo-<os>-<arch>[.exe]` | Forgejo / Codeberg / Gitea forge plugin |
           | `archon-chat-slack-<os>-<arch>[.exe]` | Slack chat plugin |
           | `archon-provider-claude-<os>-<arch>[.exe]` | Claude provider plugin, installed by `archon provider add claude` |
           | `archon-provider-codex-<os>-<arch>[.exe]` | Codex provider plugin, installed by `archon provider add codex` |

@@ -124,6 +124,42 @@ describe('pull requests', () => {
     expect(conflict).toMatchObject({ ok: false, error: { kind: 'conflict' } });
   });
 
+  test('pr.view by head filters by branch name and verifies the fork repository', async () => {
+    const fork = { host: 'codeberg.org', path: 'bob/project' };
+    const pull = samplePull({
+      head: { ref: 'feat/x', sha: 'aaa111', repo: { full_name: 'bob/project' } },
+    });
+    let listed = '';
+    const fetchImpl: Fetch = async input => {
+      const url = String(input);
+      if (url.includes('/pulls?state=open')) {
+        listed = url;
+        return json([pull]);
+      }
+      if (url.endsWith('/pulls/12')) return json(pull);
+      if (url.endsWith('/repos/bob/project')) return json({ full_name: 'bob/project' });
+      return json({}, 404);
+    };
+
+    const response = await handleForgejoOperation(
+      {
+        operationId: 'pv-fork',
+        op: 'pr.view',
+        selector: { kind: 'head', repo, headRepo: fork, head: 'feat/x', base: 'main' },
+      },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        op: 'pr.view',
+        value: { pr: { number: 12, head_repo: fork, head: 'feat/x' } },
+      },
+    });
+    expect(listed).toContain('head=feat%2Fx');
+    expect(listed).not.toContain('bob%3A');
+  });
+
   test('pr.create uses WIP prefix for draft PRs and verifies read-back', async () => {
     let postedBody: Record<string, unknown> | undefined;
     const created = samplePull({ title: 'WIP: New PR', draft: true, body: 'Body text' });

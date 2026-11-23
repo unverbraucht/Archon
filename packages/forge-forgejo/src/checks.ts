@@ -81,10 +81,47 @@ const actionJobSchema = z.object({
 });
 type ActionJob = z.infer<typeof actionJobSchema>;
 
-const actionJobListSchema = z.union([
-  z.array(actionJobSchema),
-  z.object({ jobs: z.array(actionJobSchema).nullable() }).transform(value => value.jobs ?? []),
-]);
+const actionJobPageSchema = z.object({
+  total_count: z.number().int().nonnegative().optional(),
+  jobs: z.array(actionJobSchema).nullable(),
+});
+
+/**
+ * Every job of one run. Forgejo answers a bare array with all jobs; Gitea answers
+ * `{ jobs, total_count }` and paginates, so the array shape must not be paged (the
+ * server would repeat it) and the object shape must be read to its total.
+ */
+async function readActionJobs(
+  fetchImpl: Fetch,
+  token: string,
+  base: string,
+  runId: number
+): Promise<ActionJob[]> {
+  const url = `${base}/actions/runs/${String(runId)}/jobs`;
+  const first = await forgejoRequest(fetchImpl, token, `${url}?limit=${String(PAGE_LIMIT)}&page=1`);
+  const direct = z.array(actionJobSchema).safeParse(first);
+  if (direct.success) return direct.data;
+  const page = actionJobPageSchema.parse(first);
+  const jobs = [...(page.jobs ?? [])];
+  if (page.total_count !== undefined && jobs.length >= page.total_count) return jobs;
+  for (let number = 2; ; number++) {
+    const next = actionJobPageSchema.parse(
+      await forgejoRequest(
+        fetchImpl,
+        token,
+        `${url}?limit=${String(PAGE_LIMIT)}&page=${String(number)}`
+      )
+    );
+    const rows = next.jobs ?? [];
+    jobs.push(...rows);
+    if (rows.length === 0) return jobs;
+    if (
+      page.total_count !== undefined ? jobs.length >= page.total_count : rows.length < PAGE_LIMIT
+    ) {
+      return jobs;
+    }
+  }
+}
 
 const TERMINAL_RESULTS: Record<string, CheckResult> = {
   success: 'success',
@@ -284,13 +321,7 @@ async function readCommitChecks(
 
   const latestRuns = allRuns ? latestRunsByWorkflow(allRuns) : [];
   const jobBatches = await Promise.all(
-    latestRuns.map(run =>
-      forgejoRequest(
-        fetchImpl,
-        token,
-        `${root}/repos/${path}/actions/runs/${String(run.id)}/jobs`
-      ).then(raw => actionJobListSchema.parse(raw))
-    )
+    latestRuns.map(run => readActionJobs(fetchImpl, token, `${root}/repos/${path}`, run.id))
   );
   const jobs = jobBatches.flat();
   const enumeratedIndices = new Set(

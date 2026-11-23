@@ -52,7 +52,7 @@ describe('checks and forge conformance', () => {
           ],
         });
       }
-      if (url.endsWith('/actions/runs/700/jobs')) {
+      if (url.split('?')[0]?.endsWith('/actions/runs/700/jobs')) {
         return json([{ id: 7001, run_id: 700, name: 'test', status: 'failure', attempt: 1 }]);
       }
       return json({}, 404);
@@ -101,7 +101,7 @@ describe('checks and forge conformance', () => {
           ],
         });
       }
-      if (url.endsWith('/actions/runs/900/jobs')) {
+      if (url.split('?')[0]?.endsWith('/actions/runs/900/jobs')) {
         return json({
           total_count: 1,
           jobs: [
@@ -179,6 +179,56 @@ describe('checks and forge conformance', () => {
     );
     expect(rerunFailures).toEqual([]);
     expect(rerunPath).toContain('/actions/runs/900/jobs/9001/rerun');
+  });
+
+  test('checks.state reads every page of a paginated Gitea job list', async () => {
+    const job = (id: number, name: string) => ({
+      id,
+      run_id: 900,
+      name,
+      status: 'completed',
+      conclusion: 'success',
+      run_attempt: 1,
+    });
+    const fetchImpl: Fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/pulls/22')) return json({ head: { sha: headSha } });
+      if (url.includes(`/commits/${headSha}/statuses`)) return json([]);
+      if (url.includes(`/actions/runs?head_sha=${headSha}`)) {
+        return json({
+          total_count: 1,
+          workflow_runs: [
+            {
+              id: 900,
+              run_number: 12,
+              path: '.gitea/workflows/test.yml',
+              head_sha: headSha,
+              status: 'completed',
+              conclusion: 'success',
+            },
+          ],
+        });
+      }
+      if (url.split('?')[0]?.endsWith('/actions/runs/900/jobs')) {
+        const page = Number(new URL(url).searchParams.get('page') ?? '1');
+        return json(
+          page === 1
+            ? { total_count: 3, jobs: [job(9001, 'one'), job(9002, 'two')] }
+            : { total_count: 3, jobs: [job(9003, 'three')] }
+        );
+      }
+      return json({}, 404);
+    };
+
+    const response = await handleForgejoOperation(
+      { operationId: 'gt-chk-pages', op: 'checks.state', ref: giteaRef },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({ ok: true, result: { op: 'checks.state' } });
+    if (!response.ok || response.result.op !== 'checks.state') {
+      throw new Error('checks.state did not answer');
+    }
+    expect(response.result.value.units.map(unit => unit.unit.id)).toEqual(['9001', '9002', '9003']);
   });
 
   test('checks.commit reads default branch head and degrades cleanly when Actions is disabled (404)', async () => {

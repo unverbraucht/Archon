@@ -13,7 +13,7 @@ Forge operations load only when a caller invokes `archon forge`. Local workflows
 
 GitHub is an optional, independently executable plugin. Its source is temporarily housed under `packages/adapters/src/forge/github`; the entry point imports the public forge contract and its own vendor code, not Archon's engine or adapter host. A release binary does not inject or require a GitHub implementation.
 
-A source checkout and [Docker](/deployment/docker/#plugins) run the plugin from that source, the way they run the Claude, Codex and Pi providers, so it always matches the checkout. They need no install step and skip any scanned `archon-forge-github` executable, with a notice on stderr; `archon plugin remove coleam00/Archon/plugins/forge-github` removes an installed one. A `github` plugin configured by name under `forge.plugins` or a host mapping still runs instead of the source plugin.
+A source checkout and [Docker](/deployment/docker/#plugins) run the plugin from that source, the way they run the maintained providers, so it always matches the checkout. They need no install step and skip any scanned `archon-forge-github` executable, with a notice on stderr; `archon plugin remove coleam00/Archon/plugins/forge-github` removes an installed one. A `github` plugin configured by name under `forge.plugins` or a host mapping still runs instead of the source plugin.
 
 Each Archon release publishes the plugin as a native executable for every platform the CLI ships on. With a release binary, install it with:
 
@@ -41,6 +41,29 @@ archon plugin remove coleam00/Archon/plugins/forge-github          # deletes onl
 Nothing updates in the background. To build the plugin yourself instead, compile `packages/adapters/src/forge/github/plugin.ts` from a source checkout (`bun run --cwd packages/adapters build:github-plugin`, or `bun build --compile <entry> --outfile archon-forge-github.exe` on Windows) and copy the executable into `ARCHON_HOME/plugins/`, or configure its absolute path under `forge.plugins` below. `archon plugin` leaves such a file alone.
 
 Forge plugins, provider plugins, chat plugins, and workflow packs install the same way: `archon plugin add owner/repo[/path][@tag]` reads the repository's `archon-plugin.json`, and no central registry is involved. Other plugin kinds will use the same command when their install path exists. The Archon-maintained GitHub plugin may move to its own repository, which changes the reference you install from, not this runtime protocol. Setup does not install it for you. Other production forges are community-maintained; the existing bundled Gitea/GitLab transition is not settled by this contract.
+
+## Install the Forgejo plugin
+
+Forgejo (including Codeberg) and Gitea share the v1 REST API, so one plugin serves both. It claims `codeberg.org` and `gitea.com` by default. A self-hosted instance is mapped to the plugin under `forge.hosts`:
+
+```yaml
+forge:
+  hosts:
+    forge.example.org:
+      plugin: forgejo
+      token_env: FORGE_EXAMPLE_TOKEN
+```
+
+A source checkout and Docker run the plugin from `packages/forge-forgejo` with no install step, as they do for GitHub. With a release binary:
+
+```sh
+archon plugin add coleam00/Archon/plugins/forge-forgejo
+archon plugin update coleam00/Archon/plugins/forge-forgejo   # latest release; add @<tag> to pin
+```
+
+The plugin resolves credentials from `FORGEJO_TOKEN`, `CODEBERG_TOKEN` or `GITEA_TOKEN`, in that order. With none set it asks `tea` for the host's stored login through `tea logins helper get`; no separate environment variable is needed when you already use `tea login add`. A `token_env` under `forge.hosts` or `forge.plugins` replaces both the environment list and the `tea` lookup.
+
+It supports repository and subject resolve, pull-request reads and the lifecycle writes (create, edit, ready/draft, merge with `head_commit_id`, merge state, files, reviews and review comments), work items (view, list, search, create, body edit, comments, labels), repository labels and files, checks and logs for both Forgejo Actions and Gitea Actions, commit statuses, and attachment uploads on the `archon-attachments` branch. Close reasons and review-thread reply/resolve are not exposed by the Forgejo/Gitea API, so those operations return `unsupported_op`.
 
 ## Commands
 

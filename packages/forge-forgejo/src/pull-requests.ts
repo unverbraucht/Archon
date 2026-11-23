@@ -357,8 +357,10 @@ export async function handleForgejoPrView(
   if (!sameRepository) await verifyRepository(fetchImpl, token, selector.headRepo);
   const { root, path } = location(selector.repo);
   const anyState = selector.state === 'any';
-  const headQuery = sameRepository ? selector.head : `${headRepository.owner}:${selector.head}`;
-  const query = `state=${anyState ? 'all' : 'open'}&head=${encodeURIComponent(headQuery)}${
+  // Forgejo/Gitea filter `head` by branch name only; the owner-qualified form finds
+  // nothing, including for a fork. `matchesHeadSelector` verifies the head repository
+  // against `headRepo` afterwards, so the branch-name query is safe.
+  const query = `state=${anyState ? 'all' : 'open'}&head=${encodeURIComponent(selector.head)}${
     selector.base === undefined ? '' : `&base=${encodeURIComponent(selector.base)}`
   }`;
   const listed = await forgejoPages(fetchImpl, token, `${root}/repos/${path}/pulls?${query}`, raw =>

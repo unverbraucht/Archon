@@ -350,8 +350,6 @@ function refuseBeforeRun(request: ForgeRequest, metadata: PluginMetadata): Forge
   return undefined;
 }
 
-const FORGEJO_TOKEN_KEYS = ['FORGEJO_TOKEN', 'CODEBERG_TOKEN', 'GITEA_TOKEN'] as const;
-
 function pluginCredential(
   plugin: DiscoveredPlugin,
   discovery: PluginDiscovery,
@@ -382,11 +380,9 @@ function credentialEnvNames(
     metadata.token_env.length > 0 &&
     metadata.token_env.every(name => GH_DOTCOM_TOKEN_KEYS.some(key => key === name));
   if (github) return { names: GH_DOTCOM_TOKEN_KEYS, cliFallback: 'gh' };
-  const forgejo =
-    metadata.forge === 'forgejo' &&
-    metadata.token_env.length > 0 &&
-    metadata.token_env.every(name => FORGEJO_TOKEN_KEYS.some(key => key === name));
-  if (forgejo) return { names: metadata.token_env, cliFallback: 'tea' };
+  // Any plugin that answers for Forgejo/Gitea gets the same CLI fallback: `tea` is
+  // the forge's own credential helper, whichever token_env names the plugin declares.
+  if (metadata.forge === 'forgejo') return { names: metadata.token_env, cliFallback: 'tea' };
   return { names: metadata.token_env };
 }
 

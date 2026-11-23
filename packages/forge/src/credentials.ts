@@ -13,13 +13,14 @@ type ResolvedForgeCredential =
 
 async function readCliCredential(
   cliFallback: ForgeCliFallback | undefined,
+  names: readonly string[],
   host: string,
   credentialEnv: NodeJS.ProcessEnv,
   hostEnv: NodeJS.ProcessEnv,
   refreshApp: boolean
 ): Promise<ResolvedForgeCredential | undefined> {
   if (cliFallback === 'gh') return readGhCredential(host, credentialEnv, hostEnv, refreshApp);
-  if (cliFallback === 'tea') return readTeaCredential(host, hostEnv);
+  if (cliFallback === 'tea') return readTeaCredential(host, hostEnv, names);
   return undefined;
 }
 
@@ -46,9 +47,20 @@ export async function selectCredential(
   if (!refreshApp && names.some(name => credentialEnv[name] !== undefined)) {
     return { kind: 'missing', message: `credential environment ${names.join(' or ')} is empty` };
   }
-  const credential = await readCliCredential(cliFallback, host, credentialEnv, hostEnv, refreshApp);
+  const credential = await readCliCredential(
+    cliFallback,
+    names,
+    host,
+    credentialEnv,
+    hostEnv,
+    refreshApp
+  );
   if (credential) return credential;
-  if (names.length === 0) return { kind: 'none' };
+  if (names.length === 0) {
+    return cliFallback
+      ? { kind: 'missing', message: `no credential is configured; ${cliFallback} is not installed` }
+      : { kind: 'none' };
+  }
   const suffix = cliFallback ? `; ${cliFallback} is not installed` : '';
   return {
     kind: 'missing',
@@ -106,7 +118,8 @@ function parseGitCredentialPassword(stdout: string): string {
  */
 async function readTeaCredential(
   host: string,
-  hostEnv: NodeJS.ProcessEnv
+  hostEnv: NodeJS.ProcessEnv,
+  names: readonly string[]
 ): Promise<ResolvedForgeCredential | undefined> {
   const result = await new Promise<
     { kind: 'enoent' } | { kind: 'failed' } | { kind: 'ok'; stdout: string }
@@ -161,9 +174,10 @@ async function readTeaCredential(
   });
   if (result.kind === 'enoent') return undefined;
   if (result.kind === 'failed') {
+    const alternative = names.length > 0 ? ` or set ${names.join(' or ')}` : '';
     return {
       kind: 'failed',
-      message: `tea logins helper get for ${host} failed; repair the tea login or set FORGEJO_TOKEN`,
+      message: `tea logins helper get for ${host} failed; repair the tea login${alternative}`,
     };
   }
   const token = parseGitCredentialPassword(result.stdout);
