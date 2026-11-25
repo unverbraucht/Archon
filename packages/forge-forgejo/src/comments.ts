@@ -36,9 +36,24 @@ function commentRecord(ref: PrRef, comment: Comment): ForgeCommentRecord {
   };
 }
 
+/**
+ * A comment belongs to the item when its web URL names the same repository and the same number.
+ * The host is not part of that test: Forgejo builds these URLs from its own `ROOT_URL`, which says
+ * nothing about the address a client reached the instance on. On 2026-11-25 the instance still
+ * returned `http://nas.kevin-read.com:3864/...` while the clients had moved to the LAN address, so
+ * every `workitem.comment.upsert` was written, read back, compared against the *client's* host and
+ * reported `unverified` — which a caller treating a verified write as part of its contract (the
+ * review guard) treats as fatal. A vanity domain or a proxy in front of the forge does the same.
+ *
+ * The path is what carries the identity: `/<repo>/issues/<n>` or `/<repo>/pulls/<n>`. Parsing the
+ * URL also drops a `#comment` fragment and any query, which the old string comparison kept.
+ *
+ * The repository segment comes from `location` because that is the encoded form the adapter puts in
+ * every request: comparing a decoded `owner/repo` against a parsed URL would agree only while the
+ * names happen to need no encoding.
+ */
 function commentBelongsToRef(comment: Comment, ref: PrRef): boolean {
-  const { webRoot } = location(ref.repo);
-  const expectedPrefix = `${webRoot}/${ref.repo.path}/`.toLowerCase();
+  const expectedPath = `/${location(ref.repo).path}`.toLowerCase();
   const suffixIssue = `/issues/${String(ref.number)}`;
   const suffixPull = `/pulls/${String(ref.number)}`;
   const urls = [comment.issue_url, comment.pull_request_url].filter(
@@ -46,11 +61,14 @@ function commentBelongsToRef(comment: Comment, ref: PrRef): boolean {
   );
   if (urls.length === 0) return true;
   return urls.some(url => {
-    const lower = url.toLowerCase();
-    return (
-      lower.startsWith(expectedPrefix) &&
-      (lower.endsWith(suffixIssue) || lower.endsWith(suffixPull))
-    );
+    let pathname: string;
+    try {
+      pathname = new URL(url).pathname.toLowerCase();
+    } catch {
+      return false;
+    }
+    const endsAtItem = pathname.endsWith(suffixIssue) || pathname.endsWith(suffixPull);
+    return endsAtItem && pathname.startsWith(`${expectedPath}/`);
   });
 }
 

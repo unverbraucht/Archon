@@ -30,6 +30,153 @@ function sampleIssue(overrides: Record<string, unknown> = {}) {
 }
 
 describe('work items, labels, search, and comments', () => {
+  test('workitem.comment.upsert accepts its own comment when the instance names another host', async () => {
+    // Forgejo builds these web URLs from its own ROOT_URL, which can name a host the client no
+    // longer reaches: the 2026-11-25 LAN switch made every write `unverified` for that reason.
+    const lanRepo = { host: '192.168.33.240:3864', path: 'alice/project' };
+    const lanRef = { repo: lanRepo, number: 31 };
+    const marker = '<!-- archon-report -->';
+    const served = {
+      id: 601,
+      html_url: 'http://nas.kevin-read.com:3864/alice/project/issues/31#issuecomment-601',
+      issue_url: 'http://nas.kevin-read.com:3864/alice/project/issues/31',
+      user: { id: 9, login: 'bob' },
+    };
+    const fetchImpl: Fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/issues/31')) return json(sampleIssue());
+      if (init?.method === 'POST' && url.endsWith('/issues/31/comments')) {
+        const body = (JSON.parse(String(init.body)) as { body: string }).body;
+        return json({ ...served, body }, 201);
+      }
+      if (url.endsWith('/issues/comments/601')) return json({ ...served, body: `${marker}\nv1` });
+      if (url.includes('/issues/31/comments')) return json([]);
+      return json({}, 404);
+    };
+    const response = await handleForgejoOperation(
+      {
+        operationId: 'cm-host',
+        op: 'workitem.comment.upsert',
+        subject: { kind: 'issue', ref: lanRef },
+        marker,
+        body: `${marker}\nv1`,
+      },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      result: { value: { outcome: 'applied' } },
+    });
+    // The comment's own URL still names the public host, so the record keeps what the forge said.
+    expect(response).toMatchObject({
+      result: { value: { comment: { url: served.html_url } } },
+    });
+  });
+
+  test('workitem.comment.upsert matches the repository segment without regard to case', async () => {
+    // Forgejo echoes the repository as it stores it; a request for `alice/project` must accept the
+    // comment it just wrote under `Alice/Project`.
+    const marker = '<!-- archon-report -->';
+    const served = {
+      id: 604,
+      html_url: 'https://codeberg.org/Alice/Project/issues/31#issuecomment-604',
+      issue_url: 'https://codeberg.org/Alice/Project/issues/31',
+      user: { id: 9, login: 'bob' },
+    };
+    const fetchImpl: Fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/issues/31')) return json(sampleIssue());
+      if (init?.method === 'POST' && url.endsWith('/issues/31/comments')) {
+        const body = (JSON.parse(String(init.body)) as { body: string }).body;
+        return json({ ...served, body }, 201);
+      }
+      if (url.endsWith('/issues/comments/604')) return json({ ...served, body: `${marker}\nv1` });
+      if (url.includes('/issues/31/comments')) return json([]);
+      return json({}, 404);
+    };
+    const response = await handleForgejoOperation(
+      {
+        operationId: 'cm-case',
+        op: 'workitem.comment.upsert',
+        subject: { kind: 'issue', ref },
+        marker,
+        body: `${marker}\nv1`,
+      },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({ ok: true, result: { value: { outcome: 'applied' } } });
+  });
+
+  test('workitem.comment.upsert still refuses a comment on another item', async () => {
+    const marker = '<!-- archon-report -->';
+    const served = {
+      id: 602,
+      html_url: 'https://codeberg.org/alice/project/issues/99#issuecomment-602',
+      issue_url: 'https://codeberg.org/alice/project/issues/99',
+      user: { id: 9, login: 'bob' },
+    };
+    const fetchImpl: Fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/issues/31')) return json(sampleIssue());
+      if (init?.method === 'POST' && url.endsWith('/issues/31/comments')) {
+        const body = (JSON.parse(String(init.body)) as { body: string }).body;
+        return json({ ...served, body }, 201);
+      }
+      if (url.endsWith('/issues/comments/602')) return json({ ...served, body: `${marker}\nv1` });
+      if (url.includes('/issues/31/comments')) return json([]);
+      return json({}, 404);
+    };
+    const response = await handleForgejoOperation(
+      {
+        operationId: 'cm-other-item',
+        op: 'workitem.comment.upsert',
+        subject: { kind: 'issue', ref },
+        marker,
+        body: `${marker}\nv1`,
+      },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({
+      ok: false,
+      error: { kind: 'invalid_response', message: expect.stringContaining('did not match') },
+    });
+  });
+
+  test('workitem.comment.upsert refuses a comment on another repository with the same number', async () => {
+    const marker = '<!-- archon-report -->';
+    const served = {
+      id: 603,
+      html_url: 'https://codeberg.org/alice/other/issues/31#issuecomment-603',
+      issue_url: 'https://codeberg.org/alice/other/issues/31',
+      user: { id: 9, login: 'bob' },
+    };
+    const fetchImpl: Fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/issues/31')) return json(sampleIssue());
+      if (init?.method === 'POST' && url.endsWith('/issues/31/comments')) {
+        const body = (JSON.parse(String(init.body)) as { body: string }).body;
+        return json({ ...served, body }, 201);
+      }
+      if (url.endsWith('/issues/comments/603')) return json({ ...served, body: `${marker}\nv1` });
+      if (url.includes('/issues/31/comments')) return json([]);
+      return json({}, 404);
+    };
+    const response = await handleForgejoOperation(
+      {
+        operationId: 'cm-other-repo',
+        op: 'workitem.comment.upsert',
+        subject: { kind: 'issue', ref },
+        marker,
+        body: `${marker}\nv1`,
+      },
+      { token: 'tok', fetch: fetchImpl }
+    );
+    expect(response).toMatchObject({
+      ok: false,
+      error: { kind: 'invalid_response', message: expect.stringContaining('did not match') },
+    });
+  });
+
   test('workitem.view distinguishes issues from PRs using pull_request !== null', async () => {
     const fetchImpl: Fetch = async () => json(sampleIssue());
     const response = await handleForgejoOperation(
