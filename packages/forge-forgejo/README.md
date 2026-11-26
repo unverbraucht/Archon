@@ -4,6 +4,46 @@ Archon forge plugin for **Forgejo** (including [Codeberg](https://codeberg.org))
 
 The plugin talks directly to the Forgejo/Gitea v1 REST API (`/api/v1`) over HTTPS using the token Archon passes via `ARCHON_FORGE_TOKEN`.
 
+## Where this lives
+
+The plugin is published from [`KIntegrated/archon-forge-forgejo`](https://github.com/KIntegrated/archon-forge-forgejo):
+
+```sh
+archon plugin add KIntegrated/archon-forge-forgejo
+```
+
+That repository is the source of truth from now on; this copy is the fork's development
+line and is where behaviour is tried before it is released there. It builds and tests
+against a pinned Archon commit recorded in that repository's `archon-contract.json`,
+because `@archon/forge` is a workspace package here and is not published to npm.
+
+## Pairing with the bundled Gitea adapter
+
+Archon reaches a Gitea-compatible instance through two independent layers, and this plugin is
+only the second one:
+
+- The **bundled Gitea adapter** (`GITEA_URL`, `GITEA_TOKEN`, `GITEA_WEBHOOK_SECRET`) turns an
+  issue or pull request comment into a conversation and a run, and posts the reply back. It is
+  the chat surface.
+- This **forge plugin** answers what a workflow needs to decide something about the item:
+  checks and their logs, the pull request's files and views, reviews, the marked comment, labels
+  and a qualified merge.
+
+Neither replaces the other; an install that wants both configures both. Both read
+`GITEA_TOKEN`, so point the plugin at that variable rather than letting it fall back to a `tea`
+login, and the two layers cannot drift into different identities:
+
+```yaml
+forge:
+  hosts:
+    forge.example.org:
+      plugin: forgejo
+      token_env: GITEA_TOKEN
+```
+
+Upstream tracks the remaining gap — one host, two configuration paths, and no statement of how
+they relate — as issue #6427.
+
 ## Configuration
 
 By default the plugin claims `codeberg.org` and `gitea.com`. Credentials resolve in order:
